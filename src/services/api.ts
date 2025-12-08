@@ -1,6 +1,7 @@
 // Servicio para comunicarse con el backend
 
-import type { BackendSolveRequest, BackendSolveResponse } from '@/types/backend';
+import type { BackendSolveRequest, BackendSolveResponse, BackendCourse } from '@/types/backend';
+import type { Course } from '@/types/course';
 
 export interface ProfessorWithCourses {
   profesor: string;
@@ -154,6 +155,45 @@ export async function getProfessors(): Promise<ProfessorWithCourses[]> {
       throw error;
     }
     throw new ApiError('Error al obtener profesores', 0, error);
+  }
+}
+
+/**
+ * Obtiene todos los cursos de una malla (incluye semestre y prerequisitos)
+ */
+export async function getCursosDeMalla(mallaId: string, sheet?: string): Promise<Course[]> {
+  const url = new URL(`${API_BASE_URL}/api/mallas/${encodeURIComponent(mallaId)}/cursos`);
+  if (sheet) {
+    url.searchParams.set('sheet', sheet);
+  }
+
+  try {
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new ApiError(
+        err.error || `Error ${response.status}: ${response.statusText}`,
+        response.status,
+        err
+      );
+    }
+
+    const data = await response.json();
+    const cursos = (data?.cursos ?? []) as BackendCourse[];
+    return cursos.map<Course>(c => ({
+      id: c.id,
+      code: c.codigo,
+      name: c.nombre,
+      prerequisites: c.requisitos_ids || [],
+      semestre: c.semestre ?? undefined,
+      electivo: c.electivo,
+      dificultad: c.dificultad,
+    }));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener cursos de la malla', 0, error);
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SignedIn, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
 import { InvalidEmailModal } from './components/InvalidEmailModal';
 import { MallaGrid } from './components/MallaGrid';
@@ -7,15 +7,15 @@ import { ScheduleView } from './components/ScheduleView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { useEmailValidation } from './hooks/use-email-validation';
 import { DEFAULT_PREFERENCES } from './types/preferences';
-import { solveSchedule, ApiError, getAvailableDatafiles } from './services/api';
+import { solveSchedule, ApiError, getAvailableDatafiles, getCursosDeMalla } from './services/api';
 import type { UserPreferences } from './types/preferences';
 import type { BackendSolution, BackendSolveRequest, BackendUserFilters } from './types/backend';
-import { mallaData } from './data/malla';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { TIME_SLOTS } from './types/schedule';
 import type { DayOfWeek } from './types/schedule';
 import { Button } from './components/ui/button';
+import type { Course } from './types/course';
 
 type AppView = 'malla' | 'preferences' | 'schedule' | 'analytics';
 
@@ -38,9 +38,20 @@ export default function App() {
   const [generatedSolutions, setGeneratedSolutions] = useState<BackendSolution[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableMallas, setAvailableMallas] = useState<string[]>(['MC2020.xlsx']);
-  const [selectedMalla, setSelectedMalla] = useState<string>('MC2020.xlsx');
+  const [availableMallas, setAvailableMallas] = useState<string[]>([]);
+  const [selectedMalla, setSelectedMalla] = useState<string>('');
   const [isPublicAnalytics, setIsPublicAnalytics] = useState(false);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+
+  const approvedCourseCodes = useMemo(() => {
+    const idToCode = new Map<number, string>();
+    courses.forEach(c => idToCode.set(c.id, c.code));
+    return Array.from(approvedCourses)
+      .map(id => idToCode.get(id))
+      .filter((c): c is string => Boolean(c));
+  }, [approvedCourses, courses]);
 
   // Cargar mallas disponibles desde el backend
   useEffect(() => {
@@ -49,9 +60,7 @@ export default function App() {
         const data = await getAvailableDatafiles();
         if (data.mallas && data.mallas.length > 0) {
           setAvailableMallas(data.mallas);
-          if (!data.mallas.includes(selectedMalla)) {
-            setSelectedMalla(data.mallas[0]);
-          }
+          setSelectedMalla((prev) => (data.mallas.includes(prev) ? prev : ''));
         }
       } catch (err) {
         console.error('No se pudieron cargar las mallas disponibles', err);
@@ -60,6 +69,37 @@ export default function App() {
 
     fetchMallas();
   }, []);
+
+  // Cargar cursos de la malla seleccionada
+  useEffect(() => {
+    if (!selectedMalla) {
+      setCourses([]);
+      return;
+    }
+
+    const fetchCursos = async () => {
+      setIsLoadingCourses(true);
+      setCoursesError(null);
+      try {
+        const data = await getCursosDeMalla(selectedMalla);
+        setCourses(data);
+        // Resetear selección de ramos aprobados al cambiar de malla
+        setApprovedCourses(new Set());
+      } catch (err) {
+        console.error('No se pudieron cargar cursos de la malla', err);
+        setCourses([]);
+        if (err instanceof ApiError) {
+          setCoursesError(err.message);
+        } else {
+          setCoursesError('No se pudieron cargar los cursos de la malla seleccionada.');
+        }
+      } finally {
+        setIsLoadingCourses(false);
+      }
+    };
+
+    fetchCursos();
+  }, [selectedMalla]);
 
   // Construir franjas prohibidas (bloques bloqueados) en formato backend "LU 08:30 - 09:50"
   const buildBlockedRanges = (prefs: UserPreferences): string[] => {
@@ -79,6 +119,22 @@ export default function App() {
   };
 
   const handleStartConfiguration = () => {
+    if (!selectedMalla) {
+      setError('Selecciona una malla antes de continuar.');
+      return;
+    }
+    if (isLoadingCourses) {
+      setError('Espera a que carguen los cursos de la malla.');
+      return;
+    }
+    if (coursesError) {
+      setError(coursesError);
+      return;
+    }
+    if (courses.length === 0) {
+      setError('No hay cursos disponibles para la malla seleccionada.');
+      return;
+    }
     setCurrentView('preferences');
     setError(null);
   };
@@ -111,6 +167,16 @@ export default function App() {
     setError(null);
 
     try {
+      if (!selectedMalla) {
+        setError('Selecciona una malla antes de generar horarios.');
+        setIsGenerating(false);
+        return;
+      }
+      if (isLoadingCourses || courses.length === 0) {
+        setError('Esperando cursos de la malla. Intenta de nuevo en unos segundos.');
+        setIsGenerating(false);
+        return;
+      }
       const blockedRanges = buildBlockedRanges(preferences);
       const franjasProhibidas = blockedRanges
         .map(range => {
@@ -119,11 +185,6 @@ export default function App() {
           return { dia, inicio, fin };
         })
         .filter((v): v is { dia: string; inicio: string; fin: string } => Boolean(v));
-
-      // Obtener códigos de ramos aprobados
-      const approvedCourseCodes = Array.from(approvedCourses)
-        .map(id => mallaData.find(c => c.id === id)?.code)
-        .filter(Boolean) as string[];
 
       // Construir filtros del backend
       const hasGaps = preferences.optimizations.includes('minimize-gaps');
@@ -279,6 +340,12 @@ export default function App() {
             approvedCourses={approvedCourses}
             onApprovedCoursesChange={handleApprovedCoursesChange}
             onStartCourseSelection={handleStartConfiguration}
+            availableMallas={availableMallas}
+            selectedMalla={selectedMalla}
+            onMallaChange={setSelectedMalla}
+            courses={courses}
+            isLoading={isLoadingCourses}
+            error={coursesError}
           />
         )}
 
@@ -289,9 +356,9 @@ export default function App() {
             onPreferencesChange={setUserPreferences}
             onContinue={() => handleGenerateSchedules(userPreferences)}
             onBack={handleBackToMalla}
-            availableMallas={availableMallas}
-            selectedMalla={selectedMalla}
-            onMallaChange={setSelectedMalla}
+            courses={courses}
+            isLoadingCourses={isLoadingCourses}
+            coursesError={coursesError}
           />
         )}
 

@@ -74,3 +74,15 @@ export interface BackendSolveRequest {
   optimizations?: string[];
 }
 
+export interface BackendCourse {
+  id: number;
+  nombre: string;
+  codigo: string;
+  semestre?: number;
+  requisitos_ids: number[];
+  electivo: boolean;
+  dificultad?: number;
+  numb_correlativo: number;
+  critico: boolean;
+}
+

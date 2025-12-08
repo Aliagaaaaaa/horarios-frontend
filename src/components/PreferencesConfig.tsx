@@ -7,13 +7,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { X } from 'lucide-react';
 import { TIME_SLOTS, DAYS_OF_WEEK } from '@/types/schedule';
-import type { 
-  UserPreferences, 
-  OptimizationType 
+import type {
+  UserPreferences,
+  OptimizationType
 } from '@/types/preferences';
 import type { DayOfWeek } from '@/types/schedule';
-import { mallaData } from '@/data/malla';
 import { getProfessors, type ProfessorWithCourses } from '@/services/api';
+import type { Course } from '@/types/course';
 
 interface PreferencesConfigProps {
   approvedCourses: Set<number>;
@@ -21,9 +21,9 @@ interface PreferencesConfigProps {
   onPreferencesChange: (preferences: UserPreferences) => void;
   onContinue: () => void;
   onBack: () => void;
-  availableMallas: string[];
-  selectedMalla: string;
-  onMallaChange: (malla: string) => void;
+  courses: Course[];
+  isLoadingCourses: boolean;
+  coursesError?: string | null;
 }
 
 export function PreferencesConfig({
@@ -32,9 +32,9 @@ export function PreferencesConfig({
   onPreferencesChange,
   onContinue,
   onBack,
-  availableMallas,
-  selectedMalla,
-  onMallaChange,
+  courses,
+  isLoadingCourses,
+  coursesError,
 }: PreferencesConfigProps) {
   const [localPreferences, setLocalPreferences] = useState<UserPreferences>(preferences);
   const [professors, setProfessors] = useState<ProfessorWithCourses[]>([]);
@@ -135,13 +135,51 @@ export function PreferencesConfig({
     load();
   }, []);
 
+  // Obtener cursos disponibles (no aprobados) según la malla seleccionada
+  const availableCourses = useMemo(() => {
+    return courses
+      .filter(course => {
+        if (approvedCourses.has(course.id)) return false;
+
+        const prereqs = course.prerequisites || [];
+        const hasNoPrereqs = prereqs.length === 0 ||
+          (prereqs.length === 1 && prereqs[0] === 0);
+
+        const allPrereqsApproved = hasNoPrereqs || prereqs.every((prereqId: number) => {
+          if (prereqId === 0) return true;
+          return approvedCourses.has(prereqId);
+        });
+
+        return allPrereqsApproved;
+      })
+      .sort((a, b) => {
+        const sa = a.semestre || 0;
+        const sb = b.semestre || 0;
+        return sa === sb ? a.code.localeCompare(b.code) : sa - sb;
+      });
+  }, [courses, approvedCourses]);
+
+  const eligibleCourseCodes = useMemo(() => availableCourses.map(c => c.code.toUpperCase()), [availableCourses]);
+
   const filteredProfessors = useMemo(() => {
     const term = professorsFilter.trim().toLowerCase();
-    const base = term.length === 0
-      ? professors
-      : professors.filter(p => p.profesor.toLowerCase().includes(term));
-    return base.slice(0, 50);
-  }, [professors, professorsFilter]);
+    const eligibleSet = new Set(eligibleCourseCodes);
+
+    const intersectsEligible = (p: ProfessorWithCourses) =>
+      (p.cursos || []).some(c => eligibleSet.has(c.toUpperCase()));
+
+    const base = professors.filter(p => intersectsEligible(p));
+    const withSearch = term.length === 0
+      ? base
+      : base.filter(p => p.profesor.toLowerCase().includes(term));
+
+    return withSearch.slice(0, 50);
+  }, [professors, professorsFilter, eligibleCourseCodes]);
+
+  const eligibleProfessorsCount = useMemo(() => {
+    const eligibleSet = new Set(eligibleCourseCodes);
+    return professors.filter(p => (p.cursos || []).some(c => eligibleSet.has(c.toUpperCase()))).length;
+  }, [professors, eligibleCourseCodes]);
 
   const addProfessor = (name: string, list: 'preferidos' | 'evitar') => {
     const currentPref = localPreferences.profesoresPreferidos || [];
@@ -180,22 +218,6 @@ export function PreferencesConfig({
     onContinue();
   };
 
-  // Obtener cursos disponibles (no aprobados)
-  const availableCourses = mallaData.filter(course => {
-    if (approvedCourses.has(course.id)) return false;
-    
-    // Verificar prerequisitos
-    const hasNoPrereqs = course.prerequisites.length === 0 ||
-                        (course.prerequisites.length === 1 && course.prerequisites[0] === 0);
-
-    const allPrereqsApproved = hasNoPrereqs || course.prerequisites.every((prereqId: number) => {
-      if (prereqId === 0) return true;
-      return approvedCourses.has(prereqId);
-    });
-
-    return allPrereqsApproved;
-  });
-
   return (
     <Card className="w-full border-0 shadow-none bg-transparent">
       <CardHeader className="text-center pb-6">
@@ -206,31 +228,7 @@ export function PreferencesConfig({
       </CardHeader>
 
       <CardContent className="p-6 space-y-6">
-        {/* Sección 0: Selección de Malla */}
-        <div className="bg-white rounded-lg p-5 border border-gray-200">
-          <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
-            🗂️ Malla Curricular
-          </h3>
-          <p className="text-sm text-gray-600 mb-4">
-            Selecciona el archivo de malla que quieres usar para generar los horarios.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-            <Label className="text-sm font-medium">Archivo de malla</Label>
-            <select
-              className="border border-gray-300 rounded-md p-2 text-sm"
-              value={selectedMalla}
-              onChange={(e) => onMallaChange(e.target.value)}
-            >
-              {availableMallas.map(malla => (
-                <option key={malla} value={malla}>
-                  {malla}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Sección 1: Ranking Académico */}
+        {/* Ranking Académico */}
         <div className="bg-white rounded-lg p-5 border border-gray-200">
           <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
             📊 Ranking Académico
@@ -261,13 +259,13 @@ export function PreferencesConfig({
           </div>
         </div>
 
-        {/* Sección 1.5: Preferencias de Profesores */}
+        {/* Preferencias de Profesores */}
         <div className="bg-white rounded-lg p-5 border border-gray-200">
           <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
             👨‍🏫 Preferencias de Profesores
           </h3>
           <p className="text-sm text-gray-600 mb-4">
-            Usa el buscador para marcar profesores preferidos o a evitar. Esto se envía al solver.
+            Los profesores se filtran automáticamente según los ramos que puedes tomar. Usa el buscador para marcar preferidos o a evitar.
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -278,18 +276,25 @@ export function PreferencesConfig({
                 value={professorsFilter}
                 onChange={(e) => setProfessorsFilter(e.target.value)}
                 placeholder="Ej: García"
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                disabled={eligibleCourseCodes.length === 0 || isLoadingCourses}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
               />
               <p className="text-xs text-gray-500 mt-2">
                 {isLoadingProfessors
                   ? 'Cargando profesores...'
-                  : `Mostrando ${filteredProfessors.length} de ${professors.length}`}
+                  : eligibleCourseCodes.length === 0
+                    ? 'Selecciona malla y ramos para ver profesores elegibles'
+                    : `Mostrando ${filteredProfessors.length} de ${eligibleProfessorsCount} profesores elegibles`}
               </p>
             </div>
 
             <div className="lg:col-span-2">
               <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
-                {filteredProfessors.length === 0 ? (
+                {eligibleCourseCodes.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-500">
+                    Marca tus ramos aprobados para ver profesores asociados a los ramos que puedes inscribir.
+                  </div>
+                ) : filteredProfessors.length === 0 ? (
                   <div className="p-3 text-sm text-gray-500">No hay resultados.</div>
                 ) : (
                   <table className="w-full text-xs">
@@ -399,7 +404,11 @@ export function PreferencesConfig({
             Selecciona los ramos que más te interesan tomar este semestre
           </p>
 
-          {availableCourses.length === 0 ? (
+          {isLoadingCourses ? (
+            <p className="text-sm text-gray-500 italic">Cargando cursos de la malla...</p>
+          ) : coursesError ? (
+            <p className="text-sm text-red-600 italic">{coursesError}</p>
+          ) : availableCourses.length === 0 ? (
             <p className="text-sm text-gray-500 italic">
               No hay ramos disponibles para inscribir. Verifica que hayas marcado tus ramos aprobados.
             </p>
