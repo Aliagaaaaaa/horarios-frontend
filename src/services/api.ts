@@ -7,6 +7,25 @@ export interface ProfessorWithCourses {
   cursos: string[];
 }
 
+export interface CountUsersResponse {
+  count_users: number;
+}
+
+export interface RamoCount {
+  ramo: string;
+  count: number;
+}
+
+export interface FilterCount {
+  filter: string;
+  count: number;
+}
+
+export interface HorarioScore {
+  horario: string;
+  score: number;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 export class ApiError extends Error {
@@ -135,6 +154,81 @@ export async function getProfessors(): Promise<ProfessorWithCourses[]> {
       throw error;
     }
     throw new ApiError('Error al obtener profesores', 0, error);
+  }
+}
+
+export async function getCountUsers(): Promise<CountUsersResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/count_users`);
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener conteo de usuarios', 0, error);
+  }
+}
+
+export async function getRamosMasPasados(limit = 10): Promise<RamoCount[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/ramos_pasados?limit=${limit}`);
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener ramos pasados', 0, error);
+  }
+}
+
+export async function getFiltrosMasSolicitados(): Promise<FilterCount[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/filtros_mas_solicitados`);
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener filtros solicitados', 0, error);
+  }
+}
+
+export async function getRamosMasRecomendados(limit = 10): Promise<RamoCount[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/ramos_mas_recomendados?limit=${limit}`);
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener ramos recomendados', 0, error);
+  }
+}
+
+export async function getHorariosMasRecomendados(limit = 10): Promise<HorarioScore[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/horarios_mas_recomendados?limit=${limit}`);
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener horarios recomendados', 0, error);
   }
 }
 

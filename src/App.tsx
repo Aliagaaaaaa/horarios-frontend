@@ -4,6 +4,7 @@ import { InvalidEmailModal } from './components/InvalidEmailModal';
 import { MallaGrid } from './components/MallaGrid';
 import { PreferencesConfig } from './components/PreferencesConfig';
 import { ScheduleView } from './components/ScheduleView';
+import { AnalyticsView } from './components/AnalyticsView';
 import { useEmailValidation } from './hooks/use-email-validation';
 import { DEFAULT_PREFERENCES } from './types/preferences';
 import { solveSchedule, ApiError, getAvailableDatafiles } from './services/api';
@@ -14,8 +15,9 @@ import { Alert, AlertDescription } from './components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { TIME_SLOTS } from './types/schedule';
 import type { DayOfWeek } from './types/schedule';
+import { Button } from './components/ui/button';
 
-type AppView = 'malla' | 'preferences' | 'schedule';
+type AppView = 'malla' | 'preferences' | 'schedule' | 'analytics';
 
 const DAY_CODE_MAP: Record<DayOfWeek, string> = {
   'Lunes': 'LU',
@@ -38,6 +40,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [availableMallas, setAvailableMallas] = useState<string[]>(['MC2020.xlsx']);
   const [selectedMalla, setSelectedMalla] = useState<string>('MC2020.xlsx');
+  const [isPublicAnalytics, setIsPublicAnalytics] = useState(false);
 
   // Cargar mallas disponibles desde el backend
   useEffect(() => {
@@ -87,6 +90,18 @@ export default function App() {
 
   const handleBackToPreferences = () => {
     setCurrentView('preferences');
+    setError(null);
+  };
+
+  const handleOpenAnalytics = () => {
+    setIsPublicAnalytics(true);
+    setCurrentView('analytics');
+    setError(null);
+  };
+
+  const handleCloseAnalytics = () => {
+    setIsPublicAnalytics(false);
+    setCurrentView(isSignedIn ? 'malla' : 'malla');
     setError(null);
   };
 
@@ -183,6 +198,11 @@ export default function App() {
     );
   }
 
+  // Analytics público (sin login)
+  if (currentView === 'analytics') {
+    return <AnalyticsView onBack={handleCloseAnalytics} />;
+  }
+
   // Si el usuario no está autenticado, mostrar página de login
   if (!isSignedIn) {
     return (
@@ -193,6 +213,11 @@ export default function App() {
             Accede con tu cuenta institucional para ver y planificar tu malla curricular
           </p>
           <SignInButton />
+          <div className="mt-4">
+            <Button variant="outline" onClick={handleOpenAnalytics}>
+              Ver Analytics públicas
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -210,6 +235,9 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-800">Generador de Horarios UDP</h1>
           <div className="flex items-center gap-4">
+            <Button variant="outline" size="sm" onClick={() => setCurrentView('analytics')}>
+              Analytics
+            </Button>
             <SignedIn>
               <div className="flex items-center gap-2">
                 <UserButton />
