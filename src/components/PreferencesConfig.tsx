@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import type {
 } from '@/types/preferences';
 import type { DayOfWeek } from '@/types/schedule';
 import { mallaData } from '@/data/malla';
+import { getProfessors, type ProfessorWithCourses } from '@/services/api';
 
 interface PreferencesConfigProps {
   approvedCourses: Set<number>;
@@ -20,6 +21,9 @@ interface PreferencesConfigProps {
   onPreferencesChange: (preferences: UserPreferences) => void;
   onContinue: () => void;
   onBack: () => void;
+  availableMallas: string[];
+  selectedMalla: string;
+  onMallaChange: (malla: string) => void;
 }
 
 export function PreferencesConfig({
@@ -28,8 +32,14 @@ export function PreferencesConfig({
   onPreferencesChange,
   onContinue,
   onBack,
+  availableMallas,
+  selectedMalla,
+  onMallaChange,
 }: PreferencesConfigProps) {
   const [localPreferences, setLocalPreferences] = useState<UserPreferences>(preferences);
+  const [professors, setProfessors] = useState<ProfessorWithCourses[]>([]);
+  const [professorsFilter, setProfessorsFilter] = useState('');
+  const [isLoadingProfessors, setIsLoadingProfessors] = useState(false);
 
   // Opciones de optimización
   const optimizationOptions: { value: OptimizationType; label: string; description: string }[] = [
@@ -37,16 +47,6 @@ export function PreferencesConfig({
       value: 'minimize-gaps', 
       label: '🎯 Minimizar Ventanas', 
       description: 'Reduce el tiempo libre entre clases' 
-    },
-    { 
-      value: 'morning-classes', 
-      label: '🌅 Clases en la Mañana', 
-      description: 'Prioriza horarios antes de las 13:00' 
-    },
-    { 
-      value: 'afternoon-classes', 
-      label: '🌆 Clases en la Tarde', 
-      description: 'Prioriza horarios después de las 13:00' 
     },
     { 
       value: 'compact-days', 
@@ -57,11 +57,6 @@ export function PreferencesConfig({
       value: 'spread-days', 
       label: '📅 Distribuir Días', 
       description: 'Reparte clases en más días' 
-    },
-    { 
-      value: 'no-fridays', 
-      label: '🎉 Sin Viernes', 
-      description: 'Evita clases los viernes' 
     },
   ];
 
@@ -123,6 +118,63 @@ export function PreferencesConfig({
     });
   };
 
+  // Cargar profesores desde backend (analytics)
+  useEffect(() => {
+    const load = async () => {
+      setIsLoadingProfessors(true);
+      try {
+        const data = await getProfessors();
+        const cleaned = data.filter(p => p.profesor && p.profesor.trim().length > 0);
+        setProfessors(cleaned);
+      } catch (err) {
+        console.error('No se pudieron cargar profesores', err);
+      } finally {
+        setIsLoadingProfessors(false);
+      }
+    };
+    load();
+  }, []);
+
+  const filteredProfessors = useMemo(() => {
+    const term = professorsFilter.trim().toLowerCase();
+    const base = term.length === 0
+      ? professors
+      : professors.filter(p => p.profesor.toLowerCase().includes(term));
+    return base.slice(0, 50);
+  }, [professors, professorsFilter]);
+
+  const addProfessor = (name: string, list: 'preferidos' | 'evitar') => {
+    const currentPref = localPreferences.profesoresPreferidos || [];
+    const currentAvoid = localPreferences.profesoresEvitar || [];
+    if (list === 'preferidos') {
+      if (currentPref.includes(name)) return;
+      setLocalPreferences({
+        ...localPreferences,
+        profesoresPreferidos: [...currentPref, name],
+      });
+    } else {
+      if (currentAvoid.includes(name)) return;
+      setLocalPreferences({
+        ...localPreferences,
+        profesoresEvitar: [...currentAvoid, name],
+      });
+    }
+  };
+
+  const removeProfessor = (name: string, list: 'preferidos' | 'evitar') => {
+    if (list === 'preferidos') {
+      setLocalPreferences({
+        ...localPreferences,
+        profesoresPreferidos: (localPreferences.profesoresPreferidos || []).filter(p => p !== name),
+      });
+    } else {
+      setLocalPreferences({
+        ...localPreferences,
+        profesoresEvitar: (localPreferences.profesoresEvitar || []).filter(p => p !== name),
+      });
+    }
+  };
+
   const handleContinue = () => {
     onPreferencesChange(localPreferences);
     onContinue();
@@ -154,6 +206,30 @@ export function PreferencesConfig({
       </CardHeader>
 
       <CardContent className="p-6 space-y-6">
+        {/* Sección 0: Selección de Malla */}
+        <div className="bg-white rounded-lg p-5 border border-gray-200">
+          <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
+            🗂️ Malla Curricular
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Selecciona el archivo de malla que quieres usar para generar los horarios.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+            <Label className="text-sm font-medium">Archivo de malla</Label>
+            <select
+              className="border border-gray-300 rounded-md p-2 text-sm"
+              value={selectedMalla}
+              onChange={(e) => onMallaChange(e.target.value)}
+            >
+              {availableMallas.map(malla => (
+                <option key={malla} value={malla}>
+                  {malla}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Sección 1: Ranking Académico */}
         <div className="bg-white rounded-lg p-5 border border-gray-200">
           <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
@@ -181,6 +257,135 @@ export function PreferencesConfig({
               <p className="text-xs text-gray-500 mt-2">
                 0% = Ranking más bajo, 100% = Ranking más alto (mejor prioridad)
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Sección 1.5: Preferencias de Profesores */}
+        <div className="bg-white rounded-lg p-5 border border-gray-200">
+          <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-gray-700">
+            👨‍🏫 Preferencias de Profesores
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Usa el buscador para marcar profesores preferidos o a evitar. Esto se envía al solver.
+          </p>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-1">
+              <Label className="text-sm font-medium">Buscar profesor</Label>
+              <input
+                type="text"
+                value={professorsFilter}
+                onChange={(e) => setProfessorsFilter(e.target.value)}
+                placeholder="Ej: García"
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                {isLoadingProfessors
+                  ? 'Cargando profesores...'
+                  : `Mostrando ${filteredProfessors.length} de ${professors.length}`}
+              </p>
+            </div>
+
+            <div className="lg:col-span-2">
+              <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
+                {filteredProfessors.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-500">No hay resultados.</div>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 text-left">
+                      <tr>
+                        <th className="p-2 font-semibold text-gray-700">Profesor</th>
+                        <th className="p-2 font-semibold text-gray-700">Cursos</th>
+                        <th className="p-2 font-semibold text-gray-700 text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredProfessors.map((p) => (
+                        <tr key={p.profesor} className="border-t">
+                          <td className="p-2 font-medium text-gray-800">{p.profesor}</td>
+                          <td className="p-2 text-gray-600">
+                            <div className="flex flex-wrap gap-1 max-h-12 overflow-hidden">
+                              {(p.cursos || []).slice(0, 4).map((c) => (
+                                <Badge key={c} variant="outline" className="text-[10px]">
+                                  {c}
+                                </Badge>
+                              ))}
+                              {p.cursos.length > 4 && (
+                                <span className="text-[10px] text-gray-500">+{p.cursos.length - 4}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-2 text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => addProfessor(p.profesor, 'preferidos')}
+                              >
+                                Preferir
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => addProfessor(p.profesor, 'evitar')}
+                              >
+                                Evitar
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Selecciones actuales */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Preferidos</p>
+              <div className="flex flex-wrap gap-2">
+                {(localPreferences.profesoresPreferidos || []).length === 0 && (
+                  <span className="text-xs text-gray-500">Sin preferidos</span>
+                )}
+                {(localPreferences.profesoresPreferidos || []).map((prof) => (
+                  <Badge
+                    key={prof}
+                    variant="secondary"
+                    className="flex items-center gap-1"
+                  >
+                    {prof}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => removeProfessor(prof, 'preferidos')}
+                    />
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">A evitar</p>
+              <div className="flex flex-wrap gap-2">
+                {(localPreferences.profesoresEvitar || []).length === 0 && (
+                  <span className="text-xs text-gray-500">Sin restricciones</span>
+                )}
+                {(localPreferences.profesoresEvitar || []).map((prof) => (
+                  <Badge
+                    key={prof}
+                    variant="destructive"
+                    className="flex items-center gap-1"
+                  >
+                    {prof}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => removeProfessor(prof, 'evitar')}
+                    />
+                  </Badge>
+                ))}
+              </div>
             </div>
           </div>
         </div>

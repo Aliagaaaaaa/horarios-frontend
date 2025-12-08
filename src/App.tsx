@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SignedIn, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
 import { InvalidEmailModal } from './components/InvalidEmailModal';
 import { MallaGrid } from './components/MallaGrid';
@@ -6,14 +6,24 @@ import { PreferencesConfig } from './components/PreferencesConfig';
 import { ScheduleView } from './components/ScheduleView';
 import { useEmailValidation } from './hooks/use-email-validation';
 import { DEFAULT_PREFERENCES } from './types/preferences';
-import { solveSchedule, ApiError } from './services/api';
+import { solveSchedule, ApiError, getAvailableDatafiles } from './services/api';
 import type { UserPreferences } from './types/preferences';
 import type { BackendSolution, BackendSolveRequest, BackendUserFilters } from './types/backend';
 import { mallaData } from './data/malla';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { TIME_SLOTS } from './types/schedule';
+import type { DayOfWeek } from './types/schedule';
 
 type AppView = 'malla' | 'preferences' | 'schedule';
+
+const DAY_CODE_MAP: Record<DayOfWeek, string> = {
+  'Lunes': 'LU',
+  'Martes': 'MA',
+  'Miércoles': 'MI',
+  'Jueves': 'JU',
+  'Viernes': 'VI',
+};
 
 export default function App() {
   const { isLoaded, isValidEmail, isSignedIn } = useEmailValidation();
@@ -26,6 +36,39 @@ export default function App() {
   const [generatedSolutions, setGeneratedSolutions] = useState<BackendSolution[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableMallas, setAvailableMallas] = useState<string[]>(['MC2020.xlsx']);
+  const [selectedMalla, setSelectedMalla] = useState<string>('MC2020.xlsx');
+
+  // Cargar mallas disponibles desde el backend
+  useEffect(() => {
+    const fetchMallas = async () => {
+      try {
+        const data = await getAvailableDatafiles();
+        if (data.mallas && data.mallas.length > 0) {
+          setAvailableMallas(data.mallas);
+          if (!data.mallas.includes(selectedMalla)) {
+            setSelectedMalla(data.mallas[0]);
+          }
+        }
+      } catch (err) {
+        console.error('No se pudieron cargar las mallas disponibles', err);
+      }
+    };
+
+    fetchMallas();
+  }, []);
+
+  // Construir franjas prohibidas (bloques bloqueados) en formato backend "LU 08:30 - 09:50"
+  const buildBlockedRanges = (prefs: UserPreferences): string[] => {
+    return prefs.blockedTimeSlots
+      .map(slot => {
+        const dayCode = DAY_CODE_MAP[slot.day];
+        const timeSlot = TIME_SLOTS.find(t => t.id === slot.timeSlotId);
+        if (!dayCode || !timeSlot) return null;
+        return `${dayCode} ${timeSlot.start} - ${timeSlot.end}`;
+      })
+      .filter((v): v is string => Boolean(v));
+  };
 
   // Handlers
   const handleApprovedCoursesChange = (courses: Set<number>) => {
@@ -53,31 +96,34 @@ export default function App() {
     setError(null);
 
     try {
+      const blockedRanges = buildBlockedRanges(preferences);
+      const franjasProhibidas = blockedRanges
+        .map(range => {
+          const [dia, inicio, _dash, fin] = range.split(' ');
+          if (!dia || !inicio || !fin) return null;
+          return { dia, inicio, fin };
+        })
+        .filter((v): v is { dia: string; inicio: string; fin: string } => Boolean(v));
+
       // Obtener códigos de ramos aprobados
       const approvedCourseCodes = Array.from(approvedCourses)
         .map(id => mallaData.find(c => c.id === id)?.code)
         .filter(Boolean) as string[];
 
-      // Convertir horarios bloqueados a formato "HH:MM-HH:MM"
-      const horariosPreferidos: string[] = [];
-      if (preferences.optimizations.includes('morning-classes')) {
-        horariosPreferidos.push('08:30-12:50');
-      }
-      if (preferences.optimizations.includes('afternoon-classes')) {
-        horariosPreferidos.push('13:00-18:45');
-      }
-
       // Construir filtros del backend
+      const hasGaps = preferences.optimizations.includes('minimize-gaps');
+      const hasBlockedRanges = blockedRanges.length > 0;
       const filtros: BackendUserFilters = {
         dias_horarios_libres: {
-          habilitado: preferences.optimizations.includes('no-fridays'),
-          dias_libres_preferidos: preferences.optimizations.includes('no-fridays') ? ['VI'] : undefined,
-          minimizar_ventanas: preferences.optimizations.includes('minimize-gaps'),
-          ventana_ideal_minutos: preferences.optimizations.includes('minimize-gaps') ? 30 : undefined,
+          habilitado: hasBlockedRanges || hasGaps,
+          dias_libres_preferidos: undefined,
+          minimizar_ventanas: hasGaps,
+          ventana_ideal_minutos: hasGaps ? 30 : undefined,
+          franjas_prohibidas: hasBlockedRanges ? franjasProhibidas : undefined,
         },
         ventana_entre_actividades: {
-          habilitado: preferences.optimizations.includes('minimize-gaps'),
-          minutos_entre_clases: preferences.optimizations.includes('minimize-gaps') ? 15 : undefined,
+          habilitado: hasGaps,
+          minutos_entre_clases: hasGaps ? 15 : undefined,
         },
         preferencias_profesores: {
           habilitado: ((preferences.profesoresPreferidos && preferences.profesoresPreferidos.length > 0) ||
@@ -92,11 +138,13 @@ export default function App() {
         email: user?.primaryEmailAddress?.emailAddress || '',
         ramos_pasados: approvedCourseCodes,
         ramos_prioritarios: preferences.ramosPrioritarios || [],
-        horarios_preferidos: horariosPreferidos,
-        malla: 'MC2020.xlsx', // TODO: hacer esto configurable
+        horarios_preferidos: [],
+        horarios_prohibidos: blockedRanges,
+        malla: selectedMalla,
         sheet: undefined,
         student_ranking: preferences.studentRanking || 0.5,
         filtros,
+        optimizations: preferences.optimizations,
       };
 
       console.log('Enviando request al backend:', request);
@@ -213,6 +261,9 @@ export default function App() {
             onPreferencesChange={setUserPreferences}
             onContinue={() => handleGenerateSchedules(userPreferences)}
             onBack={handleBackToMalla}
+            availableMallas={availableMallas}
+            selectedMalla={selectedMalla}
+            onMallaChange={setSelectedMalla}
           />
         )}
 

@@ -34,6 +34,12 @@ export interface BackendUserFilters {
     dias_libres_preferidos?: string[];
     minimizar_ventanas?: boolean;
     ventana_ideal_minutos?: number;
+    franjas_prohibidas?: Array<{
+      dia: string;
+      inicio: string;
+      fin: string;
+    }>;
+    no_sin_horario?: boolean;
   };
   ventana_entre_actividades?: {
     habilitado: boolean;
@@ -58,9 +64,13 @@ export interface BackendSolveRequest {
   ramos_pasados: string[];
   ramos_prioritarios: string[];
   horarios_preferidos: string[];
+  horarios_prohibidos?: string[];
   malla: string;
+  anio?: number;
   sheet?: string;
   student_ranking?: number;
+  ranking?: string[];
   filtros?: BackendUserFilters;
+  optimizations?: string[];
 }
 

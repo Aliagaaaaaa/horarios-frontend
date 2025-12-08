@@ -2,6 +2,11 @@
 
 import type { BackendSolveRequest, BackendSolveResponse } from '@/types/backend';
 
+export interface ProfessorWithCourses {
+  profesor: string;
+  cursos: string[];
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 export class ApiError extends Error {
@@ -110,6 +115,26 @@ export async function getMallaContent(mallaName: string, sheet?: string): Promis
       throw error;
     }
     throw new ApiError('Error al obtener contenido de la malla', 0, error);
+  }
+}
+
+/**
+ * Obtiene listado de profesores y cursos asociados desde analítica.
+ */
+export async function getProfessors(): Promise<ProfessorWithCourses[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/analithics/profesores_cursos`);
+
+    if (!response.ok) {
+      throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener profesores', 0, error);
   }
 }
 

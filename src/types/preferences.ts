@@ -24,11 +24,8 @@ export interface BlockedTimeSlot {
 // Tipo de optimización
 export type OptimizationType = 
   | 'minimize-gaps'        // Minimizar ventanas entre clases
-  | 'morning-classes'      // Preferir clases en la mañana
-  | 'afternoon-classes'    // Preferir clases en la tarde
   | 'compact-days'         // Días compactos (pocas ventanas)
-  | 'spread-days'          // Distribuir clases en más días
-  | 'no-fridays';          // Evitar clases los viernes
+  | 'spread-days';         // Distribuir clases en más días
 
 // Preferencias del usuario (versión frontend)
 export interface UserPreferences {
