@@ -40,7 +40,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [availableMallas, setAvailableMallas] = useState<string[]>([]);
   const [selectedMalla, setSelectedMalla] = useState<string>('');
-  const [isPublicAnalytics, setIsPublicAnalytics] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [coursesError, setCoursesError] = useState<string | null>(null);
@@ -150,14 +149,12 @@ export default function App() {
   };
 
   const handleOpenAnalytics = () => {
-    setIsPublicAnalytics(true);
     setCurrentView('analytics');
     setError(null);
   };
 
   const handleCloseAnalytics = () => {
-    setIsPublicAnalytics(false);
-    setCurrentView(isSignedIn ? 'malla' : 'malla');
+    setCurrentView('malla');
     setError(null);
   };
 
