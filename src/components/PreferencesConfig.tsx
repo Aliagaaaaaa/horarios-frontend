@@ -19,7 +19,7 @@ interface PreferencesConfigProps {
   approvedCourses: Set<number>;
   preferences: UserPreferences;
   onPreferencesChange: (preferences: UserPreferences) => void;
-  onContinue: () => void;
+  onContinue: (preferences: UserPreferences) => void;
   onBack: () => void;
   courses: Course[];
   isLoadingCourses: boolean;
@@ -215,7 +215,7 @@ export function PreferencesConfig({
 
   const handleContinue = () => {
     onPreferencesChange(localPreferences);
-    onContinue();
+    onContinue(localPreferences);
   };
 
   return (

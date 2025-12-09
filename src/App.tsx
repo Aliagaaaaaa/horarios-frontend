@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SignedIn, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
-import { InvalidEmailModal } from './components/InvalidEmailModal';
-import { MallaGrid } from './components/MallaGrid';
-import { PreferencesConfig } from './components/PreferencesConfig';
-import { ScheduleView } from './components/ScheduleView';
-import { AnalyticsView } from './components/AnalyticsView';
-import { useEmailValidation } from './hooks/use-email-validation';
-import { DEFAULT_PREFERENCES } from './types/preferences';
-import { solveSchedule, ApiError, getAvailableDatafiles, getCursosDeMalla } from './services/api';
-import type { UserPreferences } from './types/preferences';
-import type { BackendSolution, BackendSolveRequest, BackendUserFilters } from './types/backend';
-import { Alert, AlertDescription } from './components/ui/alert';
+import { InvalidEmailModal } from '@/components/InvalidEmailModal';
+import { MallaGrid } from '@/components/MallaGrid';
+import { PreferencesConfig } from '@/components/PreferencesConfig';
+import { ScheduleView } from '@/components/ScheduleView';
+import { AnalyticsView } from '@/components/AnalyticsView';
+import { useEmailValidation } from '@/hooks/use-email-validation';
+import { DEFAULT_PREFERENCES } from '@/types/preferences';
+import { solveSchedule, ApiError, getAvailableDatafiles, getCursosDeMalla } from '@/services/api';
+import type { UserPreferences } from '@/types/preferences';
+import type { BackendSolution, BackendSolveRequest, BackendUserFilters } from '@/types/backend';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { TIME_SLOTS } from './types/schedule';
 import type { DayOfWeek } from './types/schedule';
@@ -351,7 +351,7 @@ export default function App() {
             approvedCourses={approvedCourses}
             preferences={userPreferences}
             onPreferencesChange={setUserPreferences}
-            onContinue={() => handleGenerateSchedules(userPreferences)}
+          onContinue={(prefs) => handleGenerateSchedules(prefs)}
             onBack={handleBackToMalla}
             courses={courses}
             isLoadingCourses={isLoadingCourses}
