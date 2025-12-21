@@ -349,9 +349,11 @@ export default function App() {
         {currentView === 'preferences' && (
           <PreferencesConfig
             approvedCourses={approvedCourses}
+            approvedCourseCodes={approvedCourseCodes}
+            selectedMalla={selectedMalla}
             preferences={userPreferences}
             onPreferencesChange={setUserPreferences}
-          onContinue={(prefs) => handleGenerateSchedules(prefs)}
+            onContinue={(prefs) => handleGenerateSchedules(prefs)}
             onBack={handleBackToMalla}
             courses={courses}
             isLoadingCourses={isLoadingCourses}

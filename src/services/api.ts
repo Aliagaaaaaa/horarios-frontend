@@ -8,6 +8,71 @@ export interface ProfessorWithCourses {
   cursos: string[];
 }
 
+export interface CursoDisponible {
+  id: number;
+  codigo: string;
+  nombre: string;
+  semestre: number | null;
+  requisitos_ids: number[];
+  electivo: boolean;
+  dificultad: number | null;
+  is_cfg: boolean;
+  is_electivo: boolean;
+}
+
+export interface CursosDisponiblesResponse {
+  malla: string;
+  resumen: {
+    cfgs_aprobados: number;
+    cfgs_faltantes: number;
+    electivos_aprobados: number;
+    electivos_faltantes: number;
+    mostrar_cfgs: boolean;
+    mostrar_electivos: boolean;
+  };
+  total_cursos: number;
+  cursos_por_tipo: {
+    malla: number;
+    cfg: number;
+    electivo: number;
+  };
+  cursos: CursoDisponible[];
+}
+
+export interface ProfesorCursoInfo {
+  curso_codigo: string;
+  curso_nombre: string;
+  seccion: string;
+  horario: string[];
+  is_cfg: boolean;
+  is_electivo: boolean;
+}
+
+export interface ProfesorDisponible {
+  profesor: string;
+  cursos: ProfesorCursoInfo[];
+  total_secciones: number;
+}
+
+export interface ProfesoresDisponiblesResponse {
+  malla: string;
+  resumen: {
+    cfgs_aprobados: number;
+    cfgs_faltantes: number;
+    electivos_aprobados: number;
+    electivos_faltantes: number;
+    mostrar_cfgs: boolean;
+    mostrar_electivos: boolean;
+  };
+  total_profesores: number;
+  secciones_por_tipo: {
+    malla: number;
+    cfg: number;
+    electivo: number;
+  };
+  profesores: ProfesorDisponible[];
+}
+
 export interface CountUsersResponse {
   count_users: number;
 }
@@ -269,6 +334,81 @@ export async function getHorariosMasRecomendados(limit = 10): Promise<HorarioSco
       throw error;
     }
     throw new ApiError('Error al obtener horarios recomendados', 0, error);
+  }
+}
+
+/**
+ * Obtiene todos los cursos disponibles para inscribir (malla + CFG + electivos)
+ */
+export async function getCursosDisponibles(
+  malla: string,
+  ramosPasados: string[]
+): Promise<CursosDisponiblesResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/cursos/disponibles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        malla,
+        ramos_pasados: ramosPasados,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        errorData.error || `Error ${response.status}: ${response.statusText}`,
+        response.status,
+        errorData
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener cursos disponibles', 0, error);
+  }
+}
+
+/**
+ * Obtiene todos los profesores disponibles para los cursos que el estudiante puede tomar
+ * (incluye profesores de CFG y electivos)
+ */
+export async function getProfesoresDisponibles(
+  malla: string,
+  ramosPasados: string[]
+): Promise<ProfesoresDisponiblesResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/profesores/disponibles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        malla,
+        ramos_pasados: ramosPasados,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        errorData.error || `Error ${response.status}: ${response.statusText}`,
+        response.status,
+        errorData
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError('Error al obtener profesores disponibles', 0, error);
   }
 }
 

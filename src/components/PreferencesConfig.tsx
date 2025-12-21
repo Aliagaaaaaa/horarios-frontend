@@ -12,34 +12,45 @@ import type {
   OptimizationType
 } from '@/types/preferences';
 import type { DayOfWeek } from '@/types/schedule';
-import { getProfessors, type ProfessorWithCourses } from '@/services/api';
-import type { Course } from '@/types/course';
+import { 
+  getCursosDisponibles, 
+  getProfesoresDisponibles,
+  type CursoDisponible,
+  type ProfesorDisponible 
+} from '@/services/api';
 
 interface PreferencesConfigProps {
   approvedCourses: Set<number>;
+  approvedCourseCodes: string[];
+  selectedMalla: string;
   preferences: UserPreferences;
   onPreferencesChange: (preferences: UserPreferences) => void;
   onContinue: (preferences: UserPreferences) => void;
   onBack: () => void;
-  courses: Course[];
+  courses: unknown[]; // Kept for backwards compatibility with App.tsx
   isLoadingCourses: boolean;
   coursesError?: string | null;
 }
 
 export function PreferencesConfig({
-  approvedCourses,
+  approvedCourseCodes,
+  selectedMalla,
   preferences,
   onPreferencesChange,
   onContinue,
   onBack,
-  courses,
   isLoadingCourses,
   coursesError,
 }: PreferencesConfigProps) {
   const [localPreferences, setLocalPreferences] = useState<UserPreferences>(preferences);
-  const [professors, setProfessors] = useState<ProfessorWithCourses[]>([]);
+  const [professors, setProfessors] = useState<ProfesorDisponible[]>([]);
   const [professorsFilter, setProfessorsFilter] = useState('');
   const [isLoadingProfessors, setIsLoadingProfessors] = useState(false);
+  
+  // Estado para cursos disponibles (malla + CFG + electivos)
+  const [cursosDisponibles, setCursosDisponibles] = useState<CursoDisponible[]>([]);
+  const [isLoadingCursosDisponibles, setIsLoadingCursosDisponibles] = useState(false);
+  const [cursosDisponiblesError, setCursosDisponiblesError] = useState<string | null>(null);
 
   // Opciones de optimización
   const optimizationOptions: { value: OptimizationType; label: string; description: string }[] = [
@@ -118,13 +129,41 @@ export function PreferencesConfig({
     });
   };
 
-  // Cargar profesores desde backend (analytics)
+  // Cargar cursos disponibles (malla + CFG + electivos) desde el backend
   useEffect(() => {
+    if (!selectedMalla) {
+      setCursosDisponibles([]);
+      return;
+    }
+    
+    const load = async () => {
+      setIsLoadingCursosDisponibles(true);
+      setCursosDisponiblesError(null);
+      try {
+        const data = await getCursosDisponibles(selectedMalla, approvedCourseCodes);
+        setCursosDisponibles(data.cursos);
+      } catch (err) {
+        console.error('No se pudieron cargar cursos disponibles', err);
+        setCursosDisponiblesError('Error al cargar cursos disponibles');
+      } finally {
+        setIsLoadingCursosDisponibles(false);
+      }
+    };
+    load();
+  }, [selectedMalla, approvedCourseCodes]);
+
+  // Cargar profesores disponibles desde el backend
+  useEffect(() => {
+    if (!selectedMalla) {
+      setProfessors([]);
+      return;
+    }
+    
     const load = async () => {
       setIsLoadingProfessors(true);
       try {
-        const data = await getProfessors();
-        const cleaned = data.filter(p => p.profesor && p.profesor.trim().length > 0);
+        const data = await getProfesoresDisponibles(selectedMalla, approvedCourseCodes);
+        const cleaned = data.profesores.filter(p => p.profesor && p.profesor.trim().length > 0);
         setProfessors(cleaned);
       } catch (err) {
         console.error('No se pudieron cargar profesores', err);
@@ -133,53 +172,29 @@ export function PreferencesConfig({
       }
     };
     load();
-  }, []);
+  }, [selectedMalla, approvedCourseCodes]);
 
-  // Obtener cursos disponibles (no aprobados) según la malla seleccionada
+  // Los cursos disponibles ahora vienen directamente del backend (incluye CFG y electivos)
   const availableCourses = useMemo(() => {
-    return courses
-      .filter(course => {
-        if (approvedCourses.has(course.id)) return false;
+    return cursosDisponibles;
+  }, [cursosDisponibles]);
 
-        const prereqs = course.prerequisites || [];
-        const hasNoPrereqs = prereqs.length === 0 ||
-          (prereqs.length === 1 && prereqs[0] === 0);
+  const eligibleCourseCodes = useMemo(() => availableCourses.map(c => c.codigo.toUpperCase()), [availableCourses]);
 
-        const allPrereqsApproved = hasNoPrereqs || prereqs.every((prereqId: number) => {
-          if (prereqId === 0) return true;
-          return approvedCourses.has(prereqId);
-        });
-
-        return allPrereqsApproved;
-      })
-      .sort((a, b) => {
-        const sa = a.semestre || 0;
-        const sb = b.semestre || 0;
-        return sa === sb ? a.code.localeCompare(b.code) : sa - sb;
-      });
-  }, [courses, approvedCourses]);
-
-  const eligibleCourseCodes = useMemo(() => availableCourses.map(c => c.code.toUpperCase()), [availableCourses]);
-
+  // Los profesores ya vienen filtrados del backend, solo aplicamos búsqueda local
   const filteredProfessors = useMemo(() => {
     const term = professorsFilter.trim().toLowerCase();
-    const eligibleSet = new Set(eligibleCourseCodes);
-
-    const intersectsEligible = (p: ProfessorWithCourses) =>
-      (p.cursos || []).some(c => eligibleSet.has(c.toUpperCase()));
-
-    const base = professors.filter(p => intersectsEligible(p));
+    
     const withSearch = term.length === 0
-      ? base
-      : base.filter(p => p.profesor.toLowerCase().includes(term));
+      ? professors
+      : professors.filter(p => p.profesor.toLowerCase().includes(term));
 
     return withSearch.slice(0, 50);
-  }, [professors, professorsFilter, eligibleCourseCodes]);
+  }, [professors, professorsFilter]);
 
   const eligibleProfessorsCount = useMemo(() => {
-    const eligibleSet = new Set(eligibleCourseCodes);
-    return professors.filter(p => (p.cursos || []).some(c => eligibleSet.has(c.toUpperCase()))).length;
-  }, [professors, eligibleCourseCodes]);
+    return professors.length;
+  }, [professors]);
 
   const addProfessor = (name: string, list: 'preferidos' | 'evitar') => {
     const currentPref = localPreferences.profesoresPreferidos || [];
@@ -306,41 +321,67 @@ export function PreferencesConfig({
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredProfessors.map((p) => (
-                        <tr key={p.profesor} className="border-t">
-                          <td className="p-2 font-medium text-gray-800">{p.profesor}</td>
-                          <td className="p-2 text-gray-600">
-                            <div className="flex flex-wrap gap-1 max-h-12 overflow-hidden">
-                              {(p.cursos || []).slice(0, 4).map((c) => (
-                                <Badge key={c} variant="outline" className="text-[10px]">
-                                  {c}
-                                </Badge>
-                              ))}
-                              {p.cursos.length > 4 && (
-                                <span className="text-[10px] text-gray-500">+{p.cursos.length - 4}</span>
+                      {filteredProfessors.map((p) => {
+                        // Extraer códigos únicos de cursos
+                        const uniqueCursos = [...new Set((p.cursos || []).map(c => c.curso_codigo))];
+                        // Identificar tipos
+                        const hasCfg = (p.cursos || []).some(c => c.is_cfg);
+                        const hasElectivo = (p.cursos || []).some(c => c.is_electivo);
+                        
+                        return (
+                          <tr key={p.profesor} className="border-t">
+                            <td className="p-2 font-medium text-gray-800">{p.profesor}</td>
+                            <td className="p-2 text-gray-600">
+                              <div className="flex flex-wrap gap-1 max-h-16 overflow-hidden">
+                                {uniqueCursos.slice(0, 4).map((codigo) => {
+                                  const curso = (p.cursos || []).find(c => c.curso_codigo === codigo);
+                                  const isCfg = curso?.is_cfg;
+                                  const isElectivo = curso?.is_electivo;
+                                  return (
+                                    <Badge 
+                                      key={codigo} 
+                                      variant="outline" 
+                                      className={`text-[10px] ${
+                                        isCfg ? 'bg-green-50 border-green-300 text-green-700' : 
+                                        isElectivo ? 'bg-purple-50 border-purple-300 text-purple-700' : ''
+                                      }`}
+                                    >
+                                      {codigo}
+                                    </Badge>
+                                  );
+                                })}
+                                {uniqueCursos.length > 4 && (
+                                  <span className="text-[10px] text-gray-500">+{uniqueCursos.length - 4}</span>
+                                )}
+                              </div>
+                              {(hasCfg || hasElectivo) && (
+                                <div className="flex gap-1 mt-1">
+                                  {hasCfg && <span className="text-[9px] text-green-600">CFG</span>}
+                                  {hasElectivo && <span className="text-[9px] text-purple-600">Electivo</span>}
+                                </div>
                               )}
-                            </div>
-                          </td>
-                          <td className="p-2 text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => addProfessor(p.profesor, 'preferidos')}
-                              >
-                                Preferir
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => addProfessor(p.profesor, 'evitar')}
-                              >
-                                Evitar
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="p-2 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => addProfessor(p.profesor, 'preferidos')}
+                                >
+                                  Preferir
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => addProfessor(p.profesor, 'evitar')}
+                                >
+                                  Evitar
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -401,13 +442,29 @@ export function PreferencesConfig({
             ⭐ Ramos Prioritarios
           </h3>
           <p className="text-sm text-gray-600 mb-4">
-            Selecciona los ramos que más te interesan tomar este semestre
+            Selecciona los ramos que más te interesan tomar este semestre (incluye CFG y Electivos disponibles)
           </p>
 
-          {isLoadingCourses ? (
-            <p className="text-sm text-gray-500 italic">Cargando cursos de la malla...</p>
-          ) : coursesError ? (
-            <p className="text-sm text-red-600 italic">{coursesError}</p>
+          {/* Leyenda de colores */}
+          <div className="flex gap-4 mb-4 text-xs">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300"></div>
+              <span>Malla</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-green-100 border border-green-300"></div>
+              <span>CFG</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-purple-100 border border-purple-300"></div>
+              <span>Electivo</span>
+            </div>
+          </div>
+
+          {isLoadingCursosDisponibles || isLoadingCourses ? (
+            <p className="text-sm text-gray-500 italic">Cargando cursos disponibles...</p>
+          ) : cursosDisponiblesError || coursesError ? (
+            <p className="text-sm text-red-600 italic">{cursosDisponiblesError || coursesError}</p>
           ) : availableCourses.length === 0 ? (
             <p className="text-sm text-gray-500 italic">
               No hay ramos disponibles para inscribir. Verifica que hayas marcado tus ramos aprobados.
@@ -415,7 +472,17 @@ export function PreferencesConfig({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-96 overflow-y-auto">
               {availableCourses.map((course) => {
-                const isPriority = localPreferences.ramosPrioritarios.includes(course.code);
+                const isPriority = localPreferences.ramosPrioritarios.includes(course.codigo);
+                const isCfg = course.is_cfg;
+                const isElectivo = course.is_electivo;
+                
+                // Determinar estilo base según tipo
+                let baseStyle = 'border-gray-200 hover:border-gray-300';
+                if (isCfg) {
+                  baseStyle = 'border-green-200 bg-green-50/50 hover:border-green-300';
+                } else if (isElectivo) {
+                  baseStyle = 'border-purple-200 bg-purple-50/50 hover:border-purple-300';
+                }
                 
                 return (
                   <div
@@ -423,18 +490,33 @@ export function PreferencesConfig({
                     className={`p-3 rounded border-2 cursor-pointer transition-all ${
                       isPriority
                         ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        : baseStyle
                     }`}
-                    onClick={() => togglePriorityCourse(course.code)}
+                    onClick={() => togglePriorityCourse(course.codigo)}
                   >
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={isPriority}
-                        onCheckedChange={() => togglePriorityCourse(course.code)}
+                        onCheckedChange={() => togglePriorityCourse(course.codigo)}
                       />
                       <div className="flex-1">
-                        <div className="font-semibold text-sm">{course.code}</div>
-                        <div className="text-xs text-gray-600">{course.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm">{course.codigo}</span>
+                          {isCfg && (
+                            <Badge variant="outline" className="text-[10px] bg-green-100 border-green-300 text-green-700">
+                              CFG
+                            </Badge>
+                          )}
+                          {isElectivo && (
+                            <Badge variant="outline" className="text-[10px] bg-purple-100 border-purple-300 text-purple-700">
+                              Electivo
+                            </Badge>
+                          )}
+                          {course.semestre && !isCfg && !isElectivo && (
+                            <span className="text-[10px] text-gray-400">Sem {course.semestre}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600">{course.nombre}</div>
                       </div>
                     </div>
                   </div>
